@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Sensor Dashboard</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .status-bar {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: white;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255,255,255,0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+        }
+
+        .sensor-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+
+        .sensor-unit {
+            font-size: 0.9rem;
+            color: #666;
+            margin-left: 5px;
+        }
+
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .sensor-item {
+            text-align: center;
+            padding: 10px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 8px;
+        }
+
+        .sensor-item .label {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .sensor-item .value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 15px;
+        }
+
+        .gps-info {
+            background: rgba(102, 126, 234, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 10px;
+        }
+
+        .gps-status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .gps-status.valid {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .gps-status.fallback {
+            background: #FF9800;
+            color: white;
+        }
+
+        .heart-rate-display {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .heart-icon {
+            font-size: 3rem;
+            color: #e74c3c;
+            animation: heartbeat 1.5s ease-in-out infinite;
+        }
+
+        @keyframes heartbeat {
+            0% { transform: scale(1); }
+            14% { transform: scale(1.1); }
+            28% { transform: scale(1); }
+            42% { transform: scale(1.1); }
+            70% { transform: scale(1); }
+        }
+
+        .spo2-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .spo2-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50 0%, #8BC34A 50%, #FFC107 80%, #FF5722 100%);
+            transition: width 0.5s ease;
+        }
+
+        .last-updated {
+            text-align: center;
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .sensor-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌡️ IoT Sensor Dashboard</h1>
+            <p>Real-time monitoring of ESP32 sensor data</p>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="status-dot" id="connectionStatus"></div>
+                <span id="connectionText">Connecting...</span>
+            </div>
+            <div id="deviceInfo">Device: ESP32_001</div>
+            <div id="lastUpdate">Last Update: --</div>
+        </div>
+
+        <div class="grid">
+            <!-- Heart Rate & SpO2 Card -->
+            <div class="card">
+                <h3>❤️ Heart Rate & SpO2</h3>
+                <div class="heart-rate-display">
+                    <div class="heart-icon">💓</div>
+                    <div>
+                        <div class="sensor-value" id="heartRate">-- <span class="sensor-unit">BPM</span></div>
+                        <div class="sensor-value" id="spo2">-- <span class="sensor-unit">%</span></div>
+                    </div>
+                </div>
+                <div class="spo2-bar">
+                    <div class="spo2-fill" id="spo2Bar" style="width: 0%"></div>
+                </div>
+                <div class="sensor-grid" style="margin-top: 15px;">
+                    <div class="sensor-item">
+                        <div class="label">IR Signal</div>
+                        <div class="value" id="irSignal">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="label">Red Signal</div>
+                        <div class="value" id="redSignal">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="label">Signal Quality</div>
+                        <div class="value" id="signalQuality">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Accelerometer Card -->
+            <div class="card">
+                <h3>📱 Accelerometer (MPU6050)</h3>
+                <div class="sensor-grid">
+                    <div class="sensor-item">
+                        <div class="label">X-Axis</div>
+                        <div class="value" id="accelX">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="label">Y-Axis</div>
+                        <div class="value" id="accelY">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="label">Z-Axis</div>
+                        <div class="value" id="accelZ">--</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="accelChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Gyroscope Card -->
+            <div class="card">
+                <h3>🔄 Gyroscope (MPU6050)</h3>
+                <div class="sensor-grid">
+                    <div class="sensor-item">
+                        <div class="label">X-Axis</div>
+                        <div class="value" id="gyroX">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="label">Y-Axis</div>
+                        <div class="value" id="gyroY">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="label">Z-Axis</div>
+                        <div class="value" id="gyroZ">--</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="gyroChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Heart Rate Analysis Card -->
+            <div class="card">
+                <h3>📈 Heart Rate Analysis</h3>
+                <div class="sensor-grid">
+                    <div class="sensor-item">
+                        <div class="label">Current HR</div>
+                        <div class="value" id="currentHR">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="label">Avg HR</div>
+                        <div class="value" id="avgHR">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="label">HR Status</div>
+                        <div class="value" id="hrStatus">--</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="hrChart"></canvas>
+                </div>
+            </div>
+
+            <!-- GPS Card -->
+            <div class="card">
+                <h3>📍 GPS Location</h3>
+                <div class="gps-info">
+                    <div><strong>Latitude:</strong> <span id="gpsLat">--</span></div>
+                    <div><strong>Longitude:</strong> <span id="gpsLng">--</span></div>
+                    <div><strong>Satellites:</strong> <span id="gpsSatellites">--</span></div>
+                    <div><strong>Status:</strong> <span id="gpsStatus" class="gps-status">--</span></div>
+                </div>
+                <div id="mapContainer" style="height: 200px; margin-top: 15px; border-radius: 10px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; color: #666;">
+                    Map will be displayed here
+                </div>
+            </div>
+
+            <!-- Raw Sensor Data Card -->
+            <div class="card">
+                <h3>📊 Raw Sensor Data</h3>
+                <div class="sensor-grid">
+                    <div class="sensor-item">
+                        <div class="label">IR Value</div>
+                        <div class="value" id="irValue">--</div>
+                    </div>
+                    <div class="sensor-item">
+                        <div class="label">Red Value</div>
+                        <div class="value" id="redValue">--</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="rawDataChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="last-updated" id="lastUpdated">
+            Last updated: --
+        </div>
+    </div>
+
+    <script>
+        // Initialize Socket.IO connection
+        const socket = io();
+        
+        // Chart configurations
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        };
+
+        // Initialize charts
+        const accelCtx = document.getElementById('accelChart').getContext('2d');
+        const accelChart = new Chart(accelCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'X',
+                    data: [],
+                    borderColor: '#e74c3c',
+                    tension: 0.1
+                }, {
+                    label: 'Y',
+                    data: [],
+                    borderColor: '#2ecc71',
+                    tension: 0.1
+                }, {
+                    label: 'Z',
+                    data: [],
+                    borderColor: '#3498db',
+                    tension: 0.1
+                }]
+            },
+            options: chartOptions
+        });
+
+        const gyroCtx = document.getElementById('gyroChart').getContext('2d');
+        const gyroChart = new Chart(gyroCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'X',
+                    data: [],
+                    borderColor: '#e74c3c',
+                    tension: 0.1
+                }, {
+                    label: 'Y',
+                    data: [],
+                    borderColor: '#2ecc71',
+                    tension: 0.1
+                }, {
+                    label: 'Z',
+                    data: [],
+                    borderColor: '#3498db',
+                    tension: 0.1
+                }]
+            },
+            options: chartOptions
+        });
+
+        const hrCtx = document.getElementById('hrChart').getContext('2d');
+        const hrChart = new Chart(hrCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Heart Rate',
+                    data: [],
+                    borderColor: '#e74c3c',
+                    tension: 0.1
+                }]
+            },
+            options: chartOptions
+        });
+
+        const rawDataCtx = document.getElementById('rawDataChart').getContext('2d');
+        const rawDataChart = new Chart(rawDataCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'IR',
+                    data: [],
+                    borderColor: '#9b59b6',
+                    tension: 0.1
+                }, {
+                    label: 'Red',
+                    data: [],
+                    borderColor: '#e67e22',
+                    tension: 0.1
+                }]
+            },
+            options: chartOptions
+        });
+
+        // Data storage for charts
+        const maxDataPoints = 20;
+        let dataCount = 0;
+        let heartRateHistory = [];
+        let avgHeartRate = 0;
+
+        // Socket event handlers
+        socket.on('connect', () => {
+            document.getElementById('connectionStatus').style.background = '#4CAF50';
+            document.getElementById('connectionText').textContent = 'Connected';
+        });
+
+        socket.on('disconnect', () => {
+            document.getElementById('connectionStatus').style.background = '#f44336';
+            document.getElementById('connectionText').textContent = 'Disconnected';
+        });
+
+        socket.on('sensorData', (data) => {
+            updateDashboard(data);
+        });
+
+        function updateDashboard(data) {
+            // Update connection status
+            document.getElementById('connectionStatus').style.background = '#4CAF50';
+            document.getElementById('connectionText').textContent = 'Connected';
+            
+            // Update heart rate and SpO2
+            document.getElementById('heartRate').textContent = Math.round(data.heart_rate) + ' BPM';
+            document.getElementById('spo2').textContent = Math.round(data.spo2) + '%';
+            document.getElementById('spo2Bar').style.width = data.spo2 + '%';
+            
+            // Update accelerometer
+            document.getElementById('accelX').textContent = data.accelerometer.x.toFixed(2);
+            document.getElementById('accelY').textContent = data.accelerometer.y.toFixed(2);
+            document.getElementById('accelZ').textContent = data.accelerometer.z.toFixed(2);
+            
+            // Update gyroscope
+            document.getElementById('gyroX').textContent = data.gyroscope.x.toFixed(2);
+            document.getElementById('gyroY').textContent = data.gyroscope.y.toFixed(2);
+            document.getElementById('gyroZ').textContent = data.gyroscope.z.toFixed(2);
+            
+            // Update heart rate analysis
+            const currentHR = Math.round(data.heart_rate);
+            heartRateHistory.push(currentHR);
+            if (heartRateHistory.length > 10) {
+                heartRateHistory.shift();
+            }
+            avgHeartRate = heartRateHistory.reduce((a, b) => a + b, 0) / heartRateHistory.length;
+            
+            document.getElementById('currentHR').textContent = currentHR + ' BPM';
+            document.getElementById('avgHR').textContent = Math.round(avgHeartRate) + ' BPM';
+            
+            // Determine HR status
+            let hrStatus = 'Normal';
+            if (currentHR < 60) hrStatus = 'Low';
+            else if (currentHR > 100) hrStatus = 'High';
+            document.getElementById('hrStatus').textContent = hrStatus;
+            
+            // Update GPS
+            document.getElementById('gpsLat').textContent = data.gps.latitude.toFixed(6);
+            document.getElementById('gpsLng').textContent = data.gps.longitude.toFixed(6);
+            document.getElementById('gpsSatellites').textContent = data.gps.satellites;
+            
+            const statusElement = document.getElementById('gpsStatus');
+            if (data.gps.status === 'valid') {
+                statusElement.textContent = 'GPS Active';
+                statusElement.className = 'gps-status valid';
+            } else {
+                statusElement.textContent = 'Chennai Fallback';
+                statusElement.className = 'gps-status fallback';
+            }
+            
+            // Update raw sensor data
+            document.getElementById('irValue').textContent = Math.round(data.ir_value);
+            document.getElementById('redValue').textContent = Math.round(data.red_value);
+            
+            // Update signal quality indicators
+            document.getElementById('irSignal').textContent = Math.round(data.ir_value);
+            document.getElementById('redSignal').textContent = Math.round(data.red_value);
+            
+            // Calculate signal quality based on IR and Red values
+            let signalQuality = 'Poor';
+            if (data.ir_value > 50000 && data.red_value > 30000) {
+                signalQuality = 'Excellent';
+            } else if (data.ir_value > 30000 && data.red_value > 20000) {
+                signalQuality = 'Good';
+            } else if (data.ir_value > 15000 && data.red_value > 10000) {
+                signalQuality = 'Fair';
+            }
+            document.getElementById('signalQuality').textContent = signalQuality;
+            
+            // Update charts
+            updateCharts(data);
+            
+            // Update timestamps
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent = 'Last Update: ' + now.toLocaleTimeString();
+            document.getElementById('lastUpdated').textContent = 'Last updated: ' + now.toLocaleString();
+        }
+
+        function updateCharts(data) {
+            const timeLabel = new Date().toLocaleTimeString();
+            
+            // Update accelerometer chart
+            accelChart.data.labels.push(timeLabel);
+            accelChart.data.datasets[0].data.push(data.accelerometer.x);
+            accelChart.data.datasets[1].data.push(data.accelerometer.y);
+            accelChart.data.datasets[2].data.push(data.accelerometer.z);
+            
+            // Update gyroscope chart
+            gyroChart.data.labels.push(timeLabel);
+            gyroChart.data.datasets[0].data.push(data.gyroscope.x);
+            gyroChart.data.datasets[1].data.push(data.gyroscope.y);
+            gyroChart.data.datasets[2].data.push(data.gyroscope.z);
+            
+            // Update heart rate chart
+            hrChart.data.labels.push(timeLabel);
+            hrChart.data.datasets[0].data.push(data.heart_rate);
+            
+            // Update raw data chart
+            rawDataChart.data.labels.push(timeLabel);
+            rawDataChart.data.datasets[0].data.push(data.ir_value);
+            rawDataChart.data.datasets[1].data.push(data.red_value);
+            
+            // Limit data points
+            if (accelChart.data.labels.length > maxDataPoints) {
+                accelChart.data.labels.shift();
+                accelChart.data.datasets.forEach(dataset => dataset.data.shift());
+            }
+            
+            if (gyroChart.data.labels.length > maxDataPoints) {
+                gyroChart.data.labels.shift();
+                gyroChart.data.datasets.forEach(dataset => dataset.data.shift());
+            }
+            
+            if (hrChart.data.labels.length > maxDataPoints) {
+                hrChart.data.labels.shift();
+                hrChart.data.datasets[0].data.shift();
+            }
+            
+            if (rawDataChart.data.labels.length > maxDataPoints) {
+                rawDataChart.data.labels.shift();
+                rawDataChart.data.datasets.forEach(dataset => dataset.data.shift());
+            }
+            
+            // Update charts
+            accelChart.update('none');
+            gyroChart.update('none');
+            hrChart.update('none');
+            rawDataChart.update('none');
+        }
+
+        // Initial data fetch
+        fetch('/api/sensor-data')
+            .then(response => response.json())
+            .then(data => {
+                if (data.timestamp) {
+                    updateDashboard(data);
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching initial data:', error);
+            });
+    </script>
+</body>
+</html>
