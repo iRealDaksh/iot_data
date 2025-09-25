@@ -12,11 +12,9 @@
 const char* ssid = "ESP32_Test";
 const char* password = "12345678";
 
-// Web server details - SIMPLIFIED APPROACH
-// Update this IP address to your computer's IP when sharing the project
-const char* serverIP = "10.60.39.9";  // Your computer's IP address (same network as ESP32)
+// Server discovery - will find server automatically
 const int serverPort = 3002;
-String serverURL = "http://" + String(serverIP) + ":" + String(serverPort) + "/api/sensor-data";
+String serverURL = "";
 
 // Sensor objects
 Adafruit_MPU6050 mpu;
@@ -57,6 +55,7 @@ const unsigned long dataInterval = 2000; // Send data every 2 seconds
 
 // Connection status
 bool serverConnected = false;
+bool serverFound = false;
 
 void setup() {
   Serial.begin(115200);
@@ -88,68 +87,100 @@ void setup() {
   SerialGPS.begin(9600, SERIAL_8N1, 16, 17);
   Serial.println("GPS started, waiting for fix...");
 
-  // Connect to WiFi with detailed debugging
-  Serial.println("=== WiFi Connection Debug ===");
-  Serial.print("Attempting to connect to: ");
+  // Connect to WiFi
+  Serial.println("=== WiFi Connection ===");
+  Serial.print("Connecting to: ");
   Serial.println(ssid);
-  Serial.print("Password length: ");
-  Serial.println(strlen(password));
   
   WiFi.begin(ssid, password);
   
   int attempts = 0;
-  const int maxAttempts = 20; // 10 seconds timeout
-  
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
     Serial.print(".");
     attempts++;
-    
-    // Show connection status every 5 attempts
-    if (attempts % 5 == 0) {
-      Serial.println();
-      Serial.print("Status: ");
-      Serial.println(WiFi.status());
-      Serial.print("Attempt: ");
-      Serial.print(attempts);
-      Serial.print("/");
-      Serial.println(maxAttempts);
-    }
   }
-  
-  Serial.println();
   
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("✅ WiFi connected successfully!");
-    Serial.print("IP address: ");
+    Serial.println();
+    Serial.println("✅ WiFi connected!");
+    Serial.print("ESP32 IP: ");
     Serial.println(WiFi.localIP());
-    Serial.print("Signal strength (RSSI): ");
-    Serial.print(WiFi.RSSI());
-    Serial.println(" dBm");
+    
+    // Find server automatically
+    findServer();
   } else {
+    Serial.println();
     Serial.println("❌ WiFi connection failed!");
-    Serial.print("Final status: ");
-    Serial.println(WiFi.status());
-    Serial.println("Possible issues:");
-    Serial.println("- Network is 5GHz (ESP32 only supports 2.4GHz)");
-    Serial.println("- Wrong password");
-    Serial.println("- Network not in range");
-    Serial.println("- Network has device limits");
+  }
+}
+
+void findServer() {
+  Serial.println("🔍 Searching for IoT Dashboard server...");
+  
+  // Get ESP32's IP and network
+  IPAddress espIP = WiFi.localIP();
+  String networkBase = String(espIP[0]) + "." + String(espIP[1]) + "." + String(espIP[2]) + ".";
+  
+  Serial.print("Scanning network: ");
+  Serial.println(networkBase + "x");
+  
+  // Try common IP addresses in the network
+  for (int i = 1; i <= 254; i++) {
+    String testIP = networkBase + String(i);
+    
+    // Skip ESP32's own IP
+    if (testIP == espIP.toString()) {
+      continue;
+    }
+    
+    Serial.print("Testing: ");
+    Serial.print(testIP);
+    Serial.print(":");
+    Serial.print(serverPort);
+    Serial.print(" ... ");
+    
+    HTTPClient http;
+    http.begin("http://" + testIP + ":" + String(serverPort) + "/api/sensor-data");
+    http.setTimeout(2000); // 2 second timeout
+    
+    int responseCode = http.GET();
+    http.end();
+    
+    if (responseCode > 0) {
+      Serial.println("✅ FOUND!");
+      serverURL = "http://" + testIP + ":" + String(serverPort) + "/api/sensor-data";
+      serverFound = true;
+      serverConnected = true;
+      Serial.print("🎯 Server URL: ");
+      Serial.println(serverURL);
+      break;
+    } else {
+      Serial.println("❌");
+    }
+    
+    // Don't scan too fast
+    delay(100);
   }
   
-  // Test server connection
-  Serial.println("Testing connection to IoT Dashboard server...");
-  testServerConnection();
+  if (!serverFound) {
+    Serial.println("❌ No server found on network!");
+    Serial.println("Make sure the IoT Dashboard server is running on port 3002");
+  }
 }
 
 void loop() {
-  // Check WiFi connection status
+  // Check WiFi connection
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("⚠️ WiFi disconnected! Attempting to reconnect...");
-    WiFi.reconnect();
-    delay(2000);
-    return; // Skip this loop iteration
+    Serial.println("⚠️ WiFi disconnected!");
+    return;
+  }
+  
+  // If server not found, try to find it again
+  if (!serverFound) {
+    findServer();
+    delay(5000); // Wait 5 seconds before trying again
+    return;
   }
   
   // Read sensor data
@@ -168,7 +199,7 @@ void loop() {
     lastDataSent = millis();
   }
   
-  delay(50); // Faster sampling for better heart rate detection
+  delay(50);
 }
 
 void readHeartRateAndSpO2() {
@@ -286,31 +317,6 @@ void readGPSData() {
   }
 }
 
-void testServerConnection() {
-  Serial.print("Connecting to server at: ");
-  Serial.println(serverURL);
-  
-  HTTPClient http;
-  http.begin(serverURL.c_str());
-  http.setTimeout(5000); // 5 second timeout
-  
-  int httpResponseCode = http.GET();
-  
-  if (httpResponseCode > 0) {
-    Serial.println("✅ Server connection successful!");
-    Serial.print("Response code: ");
-    Serial.println(httpResponseCode);
-    serverConnected = true;
-  } else {
-    Serial.println("❌ Server connection failed!");
-    Serial.print("Error code: ");
-    Serial.println(httpResponseCode);
-    serverConnected = false;
-  }
-  
-  http.end();
-}
-
 void sendDataToServer(sensors_event_t a, sensors_event_t g) {
   if (WiFi.status() == WL_CONNECTED && serverConnected) {
     HTTPClient http;
@@ -362,14 +368,13 @@ void sendDataToServer(sensors_event_t a, sensors_event_t g) {
     
     if (httpResponseCode > 0) {
       String response = http.getString();
-      Serial.println("✅ Data sent successfully! Response: " + response);
+      Serial.println("✅ Data sent successfully!");
     } else {
       Serial.println("❌ Error sending data. HTTP Code: " + String(httpResponseCode));
-      serverConnected = false; // Mark as disconnected for retry
+      serverConnected = false;
+      serverFound = false; // Will try to find server again
     }
     
     http.end();
-  } else {
-    Serial.println("WiFi not connected!");
   }
 }

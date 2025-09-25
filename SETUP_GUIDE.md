@@ -1,10 +1,14 @@
 # IoT Sensor Dashboard Setup Guide
 
-## 🎉 NEW: Automatic Server Discovery!
+## 🚨 IMPORTANT: WiFi Configuration Required!
 
-**Great news! The project now uses automatic server discovery (mDNS), so you don't need to change IP addresses when sharing the project!**
+**When sharing this project, you MUST update the WiFi credentials in the ESP32 code!**
 
-The ESP32 will automatically find the server on the network. If automatic discovery fails, it will fall back to a configured IP address.
+The ESP32 code contains hardcoded WiFi credentials that need to be changed for each network:
+- **Line 13**: `const char* ssid = "OnePlus 11R 5G";` → Change to your WiFi name
+- **Line 14**: `const char* password = "1223334444";` → Change to your WiFi password
+
+**All devices must be on the same WiFi network** (ESP32, computer, other laptops).
 
 ## Quick Setup Steps
 
@@ -43,11 +47,18 @@ Open your browser and go to: `http://localhost:3002`
 4. **Firewall**: Make sure Windows Firewall allows Node.js on port 3002
 
 ### ESP32 Can't Connect to WiFi
-1. Update WiFi credentials in the ESP32 code:
+**This is the most common issue when sharing the project!**
+
+The ESP32 code contains hardcoded WiFi credentials that need to be updated for each network.
+
+1. **Open** `esp32_iot_sensor/esp32_iot_sensor.ino` in Arduino IDE
+2. **Find lines 13-14** and update the WiFi credentials:
    ```cpp
-   const char* ssid = "YOUR_WIFI_NAME";
-   const char* password = "YOUR_WIFI_PASSWORD";
+   const char* ssid = "YOUR_WIFI_NAME";        // Change this
+   const char* password = "YOUR_WIFI_PASSWORD"; // Change this
    ```
+3. **Upload the updated code** to ESP32
+4. **Make sure all devices are on the same WiFi network** (ESP32, computer, other laptops)
 
 ### Server Won't Start
 1. Make sure port 3002 is not being used by another application
